@@ -2,6 +2,10 @@
 dataset/face_images/
 dataset/train_set/*.jpg
 dataset/verify_set/*.jpg
+# 模型权重文件
+models/model_weight/*.pth
+# 训练结果文件
+results/*.png
 
 # Python相关
 __pycache__/
