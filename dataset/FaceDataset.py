@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import cv2
 import random
+import os
 from torchvision import transforms
  
 # 我们通过继承Dataset类来创建我们自己的数据加载类，命名为FaceDataset
@@ -17,8 +18,16 @@ class FaceDataset(data.Dataset):
         super(FaceDataset, self).__init__()
         self.root = root
         self.is_train = is_train
-        df_path = pd.read_csv(root + '\\image_emotion.csv', header=None, usecols=[0])
-        df_label = pd.read_csv(root + '\\image_emotion.csv', header=None, usecols=[1])
+        
+        # 使用os.path.join构建路径，避免不同操作系统路径分隔符问题
+        csv_path = os.path.join(root, 'image_emotion.csv')
+        
+        # 检查文件是否存在
+        if not os.path.exists(csv_path):
+            raise FileNotFoundError(f"找不到文件: {csv_path}，请确保数据集已正确放置")
+            
+        df_path = pd.read_csv(csv_path, header=None, usecols=[0])
+        df_label = pd.read_csv(csv_path, header=None, usecols=[1])
         self.path = np.array(df_path)[:, 0]
         self.label = np.array(df_label)[:, 0]
         
@@ -45,7 +54,14 @@ class FaceDataset(data.Dataset):
     # 4. 转换为FloatTensor类型
     # 读取某幅图片，item为索引号
     def __getitem__(self, item):
-        face = cv2.imread(self.root + '\\' + self.path[item])
+        # 使用os.path.join构建图片路径
+        img_path = os.path.join(self.root, self.path[item])
+        
+        # 检查图片文件是否存在
+        if not os.path.exists(img_path):
+            raise FileNotFoundError(f"找不到图片文件: {img_path}")
+            
+        face = cv2.imread(img_path)
         # 读取单通道灰度图
         face_gray = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
         # 直方图均衡化
@@ -62,6 +78,5 @@ class FaceDataset(data.Dataset):
         return face_tensor, label
 
     # 返回数据集样本总数
-    # 获取数据集样本个数
     def __len__(self):
         return self.path.shape[0]

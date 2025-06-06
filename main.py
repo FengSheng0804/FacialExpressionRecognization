@@ -5,6 +5,7 @@ import torch.utils.data as data
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import wandb  # 导入wandb库
 from dataset.FaceDataset import FaceDataset
 from models.FaceCNN import FaceCNN
 from models.config.FaceCNNConfig import FaceCNNConfig
@@ -13,8 +14,8 @@ plt.rcParams['font.sans-serif']=['SimHei']    # 用来正常显示中文标签
 plt.rcParams['axes.unicode_minus'] = False    # 用来显示负号
 
 # 设置随机种子，保证结果可复现
-torch.manual_seed(1)
-torch.cuda.manual_seed_all(1)
+torch.manual_seed(2025)
+torch.cuda.manual_seed_all(2025)
 
 # 表情标签映射，放在全局位置便于其他模型重复使用
 NUM_CLASSES = 7  # 表情类别数：生气、厌恶、恐惧、开心、伤心、惊讶、中性
@@ -30,12 +31,36 @@ EMOTIONS = {
 
 # 创建配置对象
 config = FaceCNNConfig()
-# 修改学习率，避免梯度爆炸
+# 学习率为0.0001，避免梯度爆炸
 config.LEARNING_RATE = 0.0001
 # 设置模型和训练参数
-config.KEEP_PROB = 0.5  # Dropout保留率
-config.USE_BATCHNORM = True  # 是否使用批归一化
-config.ACTIVATION = 'relu'  # 激活函数类型
+config.KEEP_PROB = 0.5          # Dropout保留率
+config.USE_BATCHNORM = True     # 是否使用批归一化
+config.ACTIVATION = 'relu'      # 激活函数类型
+
+# 初始化wandb
+def init_wandb(config):
+    """初始化wandb，设置项目名称和配置参数"""
+    wandb.init(
+        project="facial-expression-recognition",  # 项目名称
+        config={
+            "learning_rate": config.LEARNING_RATE,
+            "epochs": config.EPOCHS,
+            "batch_size": config.BATCH_SIZE,
+            "optimizer": config.OPTIMIZER,
+            "model_architecture": "FaceCNN",
+            "dataset": "FER2013",
+            "activation": config.ACTIVATION,
+            "use_batchnorm": config.USE_BATCHNORM,
+            "keep_prob": config.KEEP_PROB,
+            "device": str(config.DEVICE)
+        }
+    )
+    
+    # 设置运行名称
+    wandb.run.name = f"FaceCNN_{config.OPTIMIZER}_lr{config.LEARNING_RATE}"
+    
+    return wandb.config
 
 # 加载数据集
 def load_data():
@@ -93,10 +118,16 @@ def train(model, train_loader, valid_dataset, epochs, lr):
     best_acc = 0.0
     patience_counter = 0
     
+    # 记录模型架构到wandb
+    wandb.watch(model, log="all", log_freq=10)
+    
     print("开始训练...")
     for epoch in range(epochs):
         model.train()
         running_loss = 0.0
+        correct = 0
+        total = 0
+        
         for i, (images, labels) in enumerate(train_loader):
             images = images.to(config.DEVICE)
             labels = labels.to(config.DEVICE)
@@ -121,9 +152,22 @@ def train(model, train_loader, valid_dataset, epochs, lr):
             
             running_loss += loss.item()
             
-            # 每10个批次打印一次信息
+            # 计算训练准确率
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+            
+            # 每10个批次打印一次信息并记录到wandb
             if (i + 1) % 10 == 0:
-                print(f'Epoch [{epoch+1}/{epochs}], Step [{i+1}/{len(train_loader)}], Loss: {loss.item():.4f}')
+                batch_acc = correct / total
+                print(f'Epoch [{epoch+1}/{epochs}], Step [{i+1}/{len(train_loader)}], Loss: {loss.item():.4f}, Acc: {batch_acc:.4f}')
+                
+                # 记录到wandb
+                wandb.log({
+                    "batch": epoch * len(train_loader) + i,
+                    "batch_loss": loss.item(),
+                    "batch_accuracy": batch_acc
+                })
         
         # 更新学习率
         if config.USE_LR_SCHEDULER:
@@ -131,17 +175,27 @@ def train(model, train_loader, valid_dataset, epochs, lr):
             current_lr = scheduler.get_last_lr()[0]
             print(f'当前学习率: {current_lr:.6f}')
         
-        # 计算每个epoch的平均损失
+        # 计算每个epoch的平均损失和训练准确率
         if running_loss > 0:  # 确保有有效的loss
             epoch_loss = running_loss / len(train_loader)
             train_losses.append(epoch_loss)
+            train_acc = correct / total
             
             # 在验证集上评估模型
             model.eval()
             valid_acc = validate(model, valid_dataset, config.BATCH_SIZE)
             valid_accs.append(valid_acc)
             
-            print(f'Epoch [{epoch+1}/{epochs}], Loss: {epoch_loss:.4f}, Validation Accuracy: {valid_acc:.4f}')
+            print(f'Epoch [{epoch+1}/{epochs}], Loss: {epoch_loss:.4f}, Train Accuracy: {train_acc:.4f}, Validation Accuracy: {valid_acc:.4f}')
+            
+            # 记录到wandb
+            wandb.log({
+                "epoch": epoch,
+                "train_loss": epoch_loss,
+                "train_accuracy": train_acc,
+                "val_accuracy": valid_acc,
+                "learning_rate": optimizer.param_groups[0]['lr']
+            })
             
             # 早停机制
             if valid_acc > best_acc:
@@ -151,6 +205,13 @@ def train(model, train_loader, valid_dataset, epochs, lr):
                 os.makedirs(os.path.dirname(config.BEST_MODEL_PATH), exist_ok=True)
                 torch.save(model.state_dict(), config.BEST_MODEL_PATH)
                 print(f"发现更好的模型，已保存到 '{config.BEST_MODEL_PATH}'")
+                
+                # 记录最佳模型到wandb
+                wandb.run.summary["best_accuracy"] = best_acc
+                wandb.run.summary["best_epoch"] = epoch
+                
+                # 可选：保存模型到wandb
+                wandb.save(config.BEST_MODEL_PATH)
             else:
                 patience_counter += 1
                 
@@ -166,6 +227,9 @@ def train(model, train_loader, valid_dataset, epochs, lr):
     # 保存最终模型
     torch.save(model.state_dict(), config.MODEL_SAVE_PATH)
     print(f"最终模型已保存为 '{config.MODEL_SAVE_PATH}'")
+    
+    # 记录最终结果到wandb
+    wandb.run.summary["final_accuracy"] = valid_accs[-1]
     
     return train_losses, valid_accs
 
@@ -203,12 +267,18 @@ def test_model(model, test_dataset):
     
     confusion_matrix = np.zeros((NUM_CLASSES, NUM_CLASSES), dtype=int)
     
+    # 记录预测结果，用于wandb可视化
+    all_preds = []
+    all_labels = []
+    all_probs = []
+    
     with torch.no_grad():
         for images, labels in test_loader:
             images = images.to(config.DEVICE)
             labels = labels.to(config.DEVICE)
             
             outputs = model(images)
+            probs = torch.nn.functional.softmax(outputs, dim=1)
             _, predicted = torch.max(outputs.data, 1)
             
             total += labels.size(0)
@@ -218,6 +288,11 @@ def test_model(model, test_dataset):
             pred_label = predicted.item()
             true_label = labels.item()
             confusion_matrix[true_label][pred_label] += 1
+            
+            # 收集预测结果
+            all_preds.append(pred_label)
+            all_labels.append(true_label)
+            all_probs.append(probs.cpu().numpy())
             
             print(f"实际表情: {EMOTIONS[labels.item()]}, 预测表情: {EMOTIONS[predicted.item()]}")
     
@@ -241,15 +316,69 @@ def test_model(model, test_dataset):
     
     # 计算每个类别的精确率和召回率
     print("\n每个类别的性能指标:")
+    class_metrics = {}
     for i in range(NUM_CLASSES):
         precision = confusion_matrix[i][i] / confusion_matrix[:, i].sum() if confusion_matrix[:, i].sum() > 0 else 0
         recall = confusion_matrix[i][i] / confusion_matrix[i, :].sum() if confusion_matrix[i, :].sum() > 0 else 0
         f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
         print(f"{EMOTIONS[i]}: 精确率={precision:.4f}, 召回率={recall:.4f}, F1分数={f1:.4f}")
+        
+        # 记录到字典
+        class_metrics[EMOTIONS[i]] = {
+            "precision": precision,
+            "recall": recall,
+            "f1": f1
+        }
+    
+    # 记录测试结果到wandb
+    wandb.log({
+        "test_accuracy": accuracy,
+        "confusion_matrix": wandb.plot.confusion_matrix(
+            probs=None,
+            y_true=all_labels,
+            preds=all_preds,
+            class_names=[EMOTIONS[i] for i in range(NUM_CLASSES)]
+        )
+    })
+    
+    # 记录每个类别的指标
+    for emotion, metrics in class_metrics.items():
+        wandb.log({
+            f"test_{emotion}_precision": metrics["precision"],
+            f"test_{emotion}_recall": metrics["recall"],
+            f"test_{emotion}_f1": metrics["f1"]
+        })
+    
+    # 可选：记录一些预测样本到wandb
+    sample_images = []
+    sample_count = min(20, len(test_dataset))  # 最多记录20个样本
+    indices = np.random.choice(len(test_dataset), sample_count, replace=False)
+    
+    for idx in indices:
+        image, label = test_dataset[idx]
+        image = image.unsqueeze(0).to(config.DEVICE)
+        with torch.no_grad():
+            output = model(image)
+            prob = torch.nn.functional.softmax(output, dim=1)
+            pred = torch.argmax(output, dim=1).item()
+        
+        # 转换图像以便可视化
+        img_np = image.cpu().numpy()[0][0]  # 获取单通道图像
+        img_np = (img_np * 0.5 + 0.5) * 255  # 反归一化
+        
+        # 记录到wandb
+        caption = f"真实: {EMOTIONS[label]}, 预测: {EMOTIONS[pred]}"
+        sample_images.append(wandb.Image(img_np, caption=caption))
+    
+    # 记录样本图像
+    wandb.log({"sample_predictions": sample_images})
 
 if __name__ == "__main__":
     # 加载数据
     train_loader, valid_loader = load_data()
+    
+    # 初始化wandb
+    wandb_config = init_wandb(config)
     
     # 初始化模型 - 根据TensorFlow模型B结构
     model = FaceCNN(
@@ -280,3 +409,6 @@ if __name__ == "__main__":
     # 测试模型
     print("\n在验证集上测试最佳模型:")
     test_model(best_model, valid_loader.dataset)
+    
+    # 完成实验，关闭wandb
+    wandb.finish()
