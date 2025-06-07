@@ -13,6 +13,10 @@ from models.config.FaceCNNConfig import FaceCNNConfig
 plt.rcParams['font.sans-serif']=['SimHei']    # 用来正常显示中文标签
 plt.rcParams['axes.unicode_minus'] = False    # 用来显示负号
 
+# 设置代理
+os.environ['HTTP_PROXY'] = 'http://127.0.0.1:10808'
+os.environ['HTTPS_PROXY'] = 'http://127.0.0.1:10808'
+
 # 设置随机种子，保证结果可复现
 torch.manual_seed(2025)
 torch.cuda.manual_seed_all(2025)
@@ -36,19 +40,20 @@ config.LEARNING_RATE = 0.0001
 # 设置模型和训练参数
 config.KEEP_PROB = 0.5          # Dropout保留率
 config.USE_BATCHNORM = True     # 是否使用批归一化
-config.ACTIVATION = 'relu'      # 激活函数类型
+config.ACTIVATION = 'prelu'      # 激活函数类型
 
 # 初始化wandb
-def init_wandb(config):
+def init_wandb(config, model_name):
     """初始化wandb，设置项目名称和配置参数"""
     wandb.init(
         project="facial-expression-recognition",  # 项目名称
+        settings=wandb.Settings(init_timeout=180),  # 增加超时时间到180秒
         config={
             "learning_rate": config.LEARNING_RATE,
             "epochs": config.EPOCHS,
             "batch_size": config.BATCH_SIZE,
             "optimizer": config.OPTIMIZER,
-            "model_architecture": "FaceCNN",
+            "model_architecture": model_name,
             "dataset": "FER2013",
             "activation": config.ACTIVATION,
             "use_batchnorm": config.USE_BATCHNORM,
@@ -58,7 +63,7 @@ def init_wandb(config):
     )
     
     # 设置运行名称
-    wandb.run.name = f"FaceCNN_{config.OPTIMIZER}_lr{config.LEARNING_RATE}"
+    wandb.run.name = f"{model_name}_{config.OPTIMIZER}_lr{config.LEARNING_RATE}"
     
     return wandb.config
 
@@ -378,7 +383,8 @@ if __name__ == "__main__":
     train_loader, valid_loader = load_data()
     
     # 初始化wandb
-    wandb_config = init_wandb(config)
+    model_name = "FaceCNN"
+    wandb_config = init_wandb(config, model_name)
     
     # 初始化模型 - 根据TensorFlow模型B结构
     model = FaceCNN(

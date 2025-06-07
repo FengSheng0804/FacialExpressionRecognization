@@ -51,14 +51,12 @@ class FaceCNN(nn.Module):
         self.keep_prob = keep_prob
         
         # 激活函数选择
-        if activation == 'relu':
-            self.activation = nn.ReLU(inplace=True)
-        elif activation == 'prelu':
+        if activation == 'prelu':
             self.activation = PReLU()
         else:
             self.activation = nn.ReLU(inplace=True)
         
-        # 第一个卷积块 - 对应TensorFlow模型中的第一个卷积层
+        # 第一个卷积块
         layers = [
             nn.Conv2d(in_channels=1, out_channels=64, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(64),  # 批归一化放在激活函数前
@@ -69,7 +67,7 @@ class FaceCNN(nn.Module):
         layers.append(nn.MaxPool2d(kernel_size=3, stride=2))
         self.conv1 = nn.Sequential(*layers)
         
-        # 第二个卷积块 - 对应TensorFlow模型中的第二个卷积层
+        # 第二个卷积块
         layers = [
             nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1),
             self.activation
@@ -79,7 +77,7 @@ class FaceCNN(nn.Module):
         layers.append(nn.MaxPool2d(kernel_size=3, stride=2))
         self.conv2 = nn.Sequential(*layers)
         
-        # 第三个卷积块 - 对应TensorFlow模型中的第三个卷积层
+        # 第三个卷积块
         layers = [
             nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1),
             self.activation
@@ -93,7 +91,7 @@ class FaceCNN(nn.Module):
         # 计算卷积后的特征图大小
         self._calculate_feature_size()
         
-        # 全连接层 - 对应TensorFlow模型中的全连接层
+        # 全连接层
         self.fc = nn.Sequential(
             nn.Linear(self.feature_size, 4096),
             self.activation,
