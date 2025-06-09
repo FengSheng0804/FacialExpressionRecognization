@@ -38,7 +38,7 @@ class FaceVGGConfig:
         self.OUTPUT_SIZE = 7                # 输出类别数
         
         # VGG特定参数
-        self.VGG_TYPE = 'vgg19'             # 可选：'vgg11', 'vgg13', 'vgg16', 'vgg19'
+        self.VGG_TYPE = 'vgg16'             # 修改为 vgg16，因为保存的权重是基于 VGG16 的
         self.PRETRAINED = False             # 是否使用预训练权重
         self.FEATURE_EXTRACT = False        # 是否只训练分类器部分
         

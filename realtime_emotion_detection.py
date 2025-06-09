@@ -47,6 +47,18 @@ class RealtimeEmotionDetector:
         if self.model_type == 'vgg':
             self.config = FaceVGGConfig()
             print("使用VGG模型进行表情识别")
+            # 设置VGG模型的默认参数
+            self.vgg_params = {
+                'input_size': self.config.IMAGE_SIZE,
+                'input_channels': self.config.INPUT_CHANNELS,
+                'num_classes': self.config.OUTPUT_SIZE,
+                'vgg_type': self.config.VGG_TYPE,
+                'use_batchnorm': self.config.USE_BATCHNORM,
+                'pretrained': self.config.PRETRAINED,
+                'feature_extract': self.config.FEATURE_EXTRACT,
+                'activation': self.config.ACTIVATION,
+                'keep_prob': self.config.KEEP_PROB
+            }
         else:
             self.config = FaceCNNConfig()
             print("使用CNN模型进行表情识别")
@@ -68,7 +80,19 @@ class RealtimeEmotionDetector:
         # 加载模型（如果可用）
         if self.model_available:
             if self.model_type == 'vgg':
-                self.model = create_vgg_model(self.config)
+                try:
+                    # 使用create_vgg_model创建模型
+                    self.model = create_vgg_model(self.config)
+                    # 加载模型权重
+                    state_dict = torch.load(model_path, map_location=self.device)
+                    self.model.load_state_dict(state_dict, strict=False)
+                    print("VGG模型加载成功（使用非严格模式strict=False）")
+                    self.model.to(self.device)
+                    self.model.eval()  # 设置为评估模式
+                except Exception as e:
+                    print(f"警告: VGG模型加载出现问题: {str(e)}")
+                    print("将只进行人脸检测，不进行表情识别")
+                    self.model_available = False
             else:
                 self.model = FaceCNN(
                     input_size=self.config.IMAGE_SIZE,
@@ -76,18 +100,16 @@ class RealtimeEmotionDetector:
                     activation=self.config.ACTIVATION,
                     keep_prob=1.0  # 推理时不使用dropout
                 )
-            
-            try:
-                # 尝试加载模型权重，使用strict=False允许部分加载
-                state_dict = torch.load(model_path, map_location=self.device)
-                self.model.load_state_dict(state_dict, strict=False)
-                print("模型加载成功（使用非严格模式strict=False）")
-                self.model.to(self.device)
-                self.model.eval()  # 设置为评估模式
-            except Exception as e:
-                print(f"警告: 模型加载出现问题: {str(e)}")
-                print("将只进行人脸检测，不进行表情识别")
-                self.model_available = False
+                try:
+                    state_dict = torch.load(model_path, map_location=self.device)
+                    self.model.load_state_dict(state_dict, strict=False)
+                    print("CNN模型加载成功（使用非严格模式strict=False）")
+                    self.model.to(self.device)
+                    self.model.eval()
+                except Exception as e:
+                    print(f"警告: CNN模型加载出现问题: {str(e)}")
+                    print("将只进行人脸检测，不进行表情识别")
+                    self.model_available = False
         
         # 加载人脸检测器
         self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
@@ -376,6 +398,7 @@ class RealtimeEmotionDetector:
                 return
                 
             try:
+                # 使用create_vgg_model创建模型
                 self.model = create_vgg_model(self.config)
                 state_dict = torch.load(model_path, map_location=self.device)
                 self.model.load_state_dict(state_dict, strict=False)
