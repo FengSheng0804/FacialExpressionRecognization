@@ -1,9 +1,7 @@
-import torch
 from torch.utils import data
 import numpy as np
 import pandas as pd
 import cv2
-import random
 import os
 from torchvision import transforms
  

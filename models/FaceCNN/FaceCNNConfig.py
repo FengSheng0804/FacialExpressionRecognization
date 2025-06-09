@@ -48,8 +48,5 @@ class FaceCNNConfig:
         self.VALID_DATA_PATH = "dataset/verify_set"
         
         # 模型保存路径
-        self.MODEL_SAVE_PATH = "./models/model_weight/facial_expression_model_CNN.pth"
-        self.BEST_MODEL_PATH = "./models/model_weight/best_facial_expression_model_CNN.pth"
-        
-        # 可视化参数
-        self.PLOT_SAVE_PATH = "./results/training_plot_CNN.png"
+        self.MODEL_SAVE_PATH = "./models/FaceCNN/model_weight/facial_expression_model_CNN.pth"
+        self.BEST_MODEL_PATH = "./models/FaceCNN/model_weight/best_facial_expression_model_CNN.pth"

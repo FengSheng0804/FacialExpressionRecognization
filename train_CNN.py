@@ -7,8 +7,8 @@ import matplotlib.pyplot as plt
 import os
 import wandb  # 导入wandb库
 from dataset.FaceDataset import FaceDataset
-from models.FaceCNN import FaceCNN
-from models.config.FaceCNNConfig import FaceCNNConfig
+from models.FaceCNN.FaceCNN import FaceCNN
+from models.FaceCNN.FaceCNNConfig import FaceCNNConfig
 
 plt.rcParams['font.sans-serif']=['SimHei']    # 用来正常显示中文标签
 plt.rcParams['axes.unicode_minus'] = False    # 用来显示负号
@@ -238,30 +238,6 @@ def train(model, train_loader, valid_dataset, epochs, lr):
     
     return train_losses, valid_accs
 
-# 绘制训练过程
-def plot_training(train_losses, valid_accs):
-    plt.figure(figsize=(12, 5))
-    
-    plt.subplot(1, 2, 1)
-    plt.plot(train_losses)
-    plt.title('训练损失')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    
-    plt.subplot(1, 2, 2)
-    plt.plot(valid_accs)
-    plt.title('验证集准确率')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy')
-    
-    # 创建保存图表的目录（如果不存在）
-    os.makedirs(os.path.dirname(config.PLOT_SAVE_PATH), exist_ok=True)
-    
-    plt.tight_layout()
-    plt.savefig(config.PLOT_SAVE_PATH)
-    print(f"训练过程图表已保存为 '{config.PLOT_SAVE_PATH}'")
-    plt.show()
-
 # 测试模型
 def test_model(model, test_dataset):
     model.eval()
@@ -398,9 +374,6 @@ if __name__ == "__main__":
     
     # 训练模型
     train_losses, valid_accs = train(model, train_loader, valid_loader.dataset, config.EPOCHS, config.LEARNING_RATE)
-    
-    # 绘制训练过程
-    plot_training(train_losses, valid_accs)
     
     # 加载最佳模型进行测试
     best_model = FaceCNN(
