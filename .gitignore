@@ -4,6 +4,9 @@ dataset/train_set/*.jpg
 dataset/verify_set/*.jpg
 # 模型权重文件
 models/FaceCNN/model_weight/*.pth
+models/FaceVGG/model_weight/*.pth
+# 模型训练日志
+wandb/
 
 # Python相关
 __pycache__/

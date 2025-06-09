@@ -7,8 +7,8 @@ import matplotlib.pyplot as plt
 import os
 import wandb  # 导入wandb库
 from dataset.FaceDataset import FaceDataset
-from models.FaceCNN.FaceCNN import FaceCNN
-from models.FaceCNN.FaceCNNConfig import FaceCNNConfig
+from models.FaceVGG.FaceVGG import FaceVGG, create_vgg_model
+from models.FaceVGG.FaceVGGConfig import FaceVGGConfig
 
 plt.rcParams['font.sans-serif']=['SimHei']    # 用来正常显示中文标签
 plt.rcParams['axes.unicode_minus'] = False    # 用来显示负号
@@ -34,13 +34,15 @@ EMOTIONS = {
 }
 
 # 创建配置对象
-config = FaceCNNConfig()
-# 学习率为0.0001，避免梯度爆炸
+config = FaceVGGConfig()
+# 调整学习率
 config.LEARNING_RATE = 0.0001
-# 设置模型和训练参数
-config.KEEP_PROB = 0.5          # Dropout保留率
-config.USE_BATCHNORM = True     # 是否使用批归一化
-config.ACTIVATION = 'prelu'      # 激活函数类型
+# 设置VGG类型
+config.VGG_TYPE = 'vgg16'
+# 是否使用预训练权重
+config.PRETRAINED = False
+# 是否只训练分类器部分
+config.FEATURE_EXTRACT = False
 
 # 初始化wandb
 def init_wandb(config, model_name):
@@ -58,12 +60,15 @@ def init_wandb(config, model_name):
             "activation": config.ACTIVATION,
             "use_batchnorm": config.USE_BATCHNORM,
             "keep_prob": config.KEEP_PROB,
+            "vgg_type": config.VGG_TYPE,
+            "pretrained": config.PRETRAINED,
+            "feature_extract": config.FEATURE_EXTRACT,
             "device": str(config.DEVICE)
         }
     )
     
     # 设置运行名称
-    wandb.run.name = f"{model_name}_{config.OPTIMIZER}_lr{config.LEARNING_RATE}"
+    wandb.run.name = f"{model_name}_{config.VGG_TYPE}_{config.OPTIMIZER}_lr{config.LEARNING_RATE}"
     
     return wandb.config
 
@@ -102,10 +107,11 @@ def train(model, train_loader, valid_dataset, epochs, lr):
     # 定义损失函数和优化器
     criterion = nn.CrossEntropyLoss()
     
-    # 根据模型B的设置选择优化器
+    # 根据配置选择优化器
     if config.OPTIMIZER == 'adam':
-        optimizer = optim.Adam(model.parameters(), lr=lr, betas=(config.BETA1, config.BETA2))
-    else:  # 默认使用Momentum优化器
+        optimizer = optim.Adam(model.parameters(), lr=lr, betas=(config.BETA1, config.BETA2), 
+                              weight_decay=config.WEIGHT_DECAY)
+    else:  # 使用SGD优化器
         optimizer = optim.SGD(model.parameters(), lr=lr, momentum=config.MOMENTUM, 
                              weight_decay=config.WEIGHT_DECAY)
     
@@ -235,6 +241,7 @@ def train(model, train_loader, valid_dataset, epochs, lr):
     
     return train_losses, valid_accs
 
+
 # 测试模型
 def test_model(model, test_dataset):
     model.eval()
@@ -356,16 +363,11 @@ if __name__ == "__main__":
     train_loader, valid_loader = load_data()
     
     # 初始化wandb
-    model_name = "FaceCNN"
+    model_name = "FaceVGG"
     wandb_config = init_wandb(config, model_name)
     
-    # 初始化模型 - 根据TensorFlow模型B结构
-    model = FaceCNN(
-        input_size=config.IMAGE_SIZE, 
-        use_batchnorm=config.USE_BATCHNORM, 
-        activation=config.ACTIVATION, 
-        keep_prob=config.KEEP_PROB
-    )
+    # 初始化模型
+    model = create_vgg_model(config)
     print("模型结构:")
     model.summary()
     
@@ -373,12 +375,7 @@ if __name__ == "__main__":
     train_losses, valid_accs = train(model, train_loader, valid_loader.dataset, config.EPOCHS, config.LEARNING_RATE)
     
     # 加载最佳模型进行测试
-    best_model = FaceCNN(
-        input_size=config.IMAGE_SIZE,
-        use_batchnorm=config.USE_BATCHNORM,
-        activation=config.ACTIVATION,
-        keep_prob=config.KEEP_PROB
-    )
+    best_model = create_vgg_model(config)
     best_model.load_state_dict(torch.load(config.BEST_MODEL_PATH))
     best_model = best_model.to(config.DEVICE)
     
@@ -387,4 +384,4 @@ if __name__ == "__main__":
     test_model(best_model, valid_loader.dataset)
     
     # 完成实验，关闭wandb
-    wandb.finish()
+    wandb.finish() 

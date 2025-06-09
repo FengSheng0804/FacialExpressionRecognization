@@ -6,7 +6,11 @@ import time
 from datetime import datetime
 from models.FaceCNN.FaceCNN import FaceCNN
 from models.FaceCNN.FaceCNNConfig import FaceCNNConfig
+from models.FaceVGG.FaceVGG import FaceVGG, create_vgg_model
+from models.FaceVGG.FaceVGGConfig import FaceVGGConfig
 from PIL import Image, ImageDraw, ImageFont
+import numpy as np
+import argparse
 
 # 表情标签映射
 EMOTIONS = {
@@ -31,10 +35,21 @@ EMOTION_COLORS = {
 }
 
 class RealtimeEmotionDetector:
-    def __init__(self, model_path=None, simple_mode=False):
-        # 初始化配置
-        self.config = FaceCNNConfig()
+    def __init__(self, model_type='cnn', model_path=None, simple_mode=False):
+        # 初始化配置和模型类型
+        self.model_type = model_type.lower()
         self.simple_mode = simple_mode
+        
+        # 标记模型是否可用
+        self.model_available = True
+        
+        # 根据模型类型选择配置
+        if self.model_type == 'vgg':
+            self.config = FaceVGGConfig()
+            print("使用VGG模型进行表情识别")
+        else:
+            self.config = FaceCNNConfig()
+            print("使用CNN模型进行表情识别")
         
         # 如果未指定模型路径，使用配置中的最佳模型路径
         if model_path is None:
@@ -42,31 +57,37 @@ class RealtimeEmotionDetector:
             
         # 检查模型文件是否存在
         if not os.path.exists(model_path):
-            raise FileNotFoundError(f"找不到模型文件: {model_path}，请确保模型已训练并保存")
+            print(f"警告: 模型文件不存在: {model_path}")
+            print("将只进行人脸检测，不进行表情识别")
+            self.model_available = False
         
         # 初始化设备
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"使用设备: {self.device}")
         
-        # 加载模型
-        self.model = FaceCNN(
-            input_size=self.config.IMAGE_SIZE,
-            use_batchnorm=self.config.USE_BATCHNORM,
-            activation=self.config.ACTIVATION,
-            keep_prob=1.0  # 推理时不使用dropout
-        )
-        
-        try:
-            # 尝试加载模型权重，使用strict=False允许部分加载
-            state_dict = torch.load(model_path, map_location=self.device)
-            self.model.load_state_dict(state_dict, strict=False)
-            print("模型加载成功（使用非严格模式）")
-        except Exception as e:
-            print(f"警告: 模型加载出现问题: {str(e)}")
-            print("将继续使用未完全初始化的模型，结果可能不准确")
+        # 加载模型（如果可用）
+        if self.model_available:
+            if self.model_type == 'vgg':
+                self.model = create_vgg_model(self.config)
+            else:
+                self.model = FaceCNN(
+                    input_size=self.config.IMAGE_SIZE,
+                    use_batchnorm=self.config.USE_BATCHNORM,
+                    activation=self.config.ACTIVATION,
+                    keep_prob=1.0  # 推理时不使用dropout
+                )
             
-        self.model.to(self.device)
-        self.model.eval()  # 设置为评估模式
+            try:
+                # 尝试加载模型权重，使用strict=False允许部分加载
+                state_dict = torch.load(model_path, map_location=self.device)
+                self.model.load_state_dict(state_dict, strict=False)
+                print("模型加载成功（使用非严格模式strict=False）")
+                self.model.to(self.device)
+                self.model.eval()  # 设置为评估模式
+            except Exception as e:
+                print(f"警告: 模型加载出现问题: {str(e)}")
+                print("将只进行人脸检测，不进行表情识别")
+                self.model_available = False
         
         # 加载人脸检测器
         self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
@@ -85,7 +106,6 @@ class RealtimeEmotionDetector:
         self.is_recording = False
         self.video_writer = None
         self.output_dir = "output"
-        os.makedirs(self.output_dir, exist_ok=True)
         
         # 状态消息
         self.status_message = ""
@@ -169,6 +189,12 @@ class RealtimeEmotionDetector:
         # 显示FPS
         display_frame = self.cv2_img_add_text(display_frame, f"FPS: {int(self.fps)}", 10, 30, (0, 255, 0), 20)
         
+        # 显示模型类型和状态
+        model_text = f"模型: {self.model_type.upper()}"
+        if not self.model_available:
+            model_text += " (仅检测人脸)"
+        display_frame = self.cv2_img_add_text(display_frame, model_text, 10, display_frame.shape[0] - 60, (255, 255, 255), 16)
+        
         # 显示录制状态
         if self.is_recording:
             display_frame = self.cv2_img_add_text(display_frame, "录制中...", 10, 60, (0, 0, 255), 20)
@@ -178,7 +204,7 @@ class RealtimeEmotionDetector:
             display_frame = self.cv2_img_add_text(display_frame, self.status_message, 10, 90, (255, 255, 0), 20)
         
         # 显示帮助信息
-        help_text = "按 'q' 退出 | 's' 切换模式 | 'r' 录制 | 'c' 截图"
+        help_text = "按 'q' 退出 | 's' 切换模式 | 'r' 录制 | 'c' 截图 | 'm' 切换模型"
         display_frame = self.cv2_img_add_text(
             display_frame, 
             help_text, 
@@ -203,6 +229,11 @@ class RealtimeEmotionDetector:
         for (x, y, w, h) in faces:
             # 提取人脸区域
             face_roi = frame[y:y+h, x:x+w]
+            
+            # 如果模型不可用，只绘制人脸框
+            if not self.model_available:
+                cv2.rectangle(display_frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                continue
             
             try:
                 # 预处理人脸
@@ -288,6 +319,8 @@ class RealtimeEmotionDetector:
     def take_screenshot(self, frame):
         """保存当前帧为图片"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # 确保输出目录存在
+        os.makedirs(self.output_dir, exist_ok=True)
         filename = os.path.join(self.output_dir, f"screenshot_{timestamp}.jpg")
         cv2.imwrite(filename, frame)
         self.status_message = f"截图已保存: {filename}"
@@ -307,6 +340,8 @@ class RealtimeEmotionDetector:
         else:
             # 开始录制
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # 确保输出目录存在
+            os.makedirs(self.output_dir, exist_ok=True)
             filename = os.path.join(self.output_dir, f"recording_{timestamp}.mp4")
             
             # 获取视频参数
@@ -322,6 +357,69 @@ class RealtimeEmotionDetector:
             print(self.status_message)
         
         self.status_time = time.time()
+        
+    def switch_model(self):
+        """切换使用的模型类型"""
+        if self.model_type == 'cnn':
+            # 切换到VGG模型
+            self.model_type = 'vgg'
+            self.config = FaceVGGConfig()
+            model_path = self.config.BEST_MODEL_PATH
+            
+            # 检查模型文件是否存在
+            if not os.path.exists(model_path):
+                self.model_available = False
+                self.status_message = "已切换到VGG模型（仅检测人脸）"
+                self.status_time = time.time()
+                print(f"警告: VGG模型文件不存在: {model_path}")
+                print("将只进行人脸检测，不进行表情识别")
+                return
+                
+            try:
+                self.model = create_vgg_model(self.config)
+                state_dict = torch.load(model_path, map_location=self.device)
+                self.model.load_state_dict(state_dict, strict=False)
+                self.model.to(self.device)
+                self.model.eval()
+                self.model_available = True
+                self.status_message = "已切换到VGG模型"
+            except Exception as e:
+                self.model_available = False
+                self.status_message = f"VGG模型加载失败（仅检测人脸）: {str(e)}"
+        else:
+            # 切换到CNN模型
+            self.model_type = 'cnn'
+            self.config = FaceCNNConfig()
+            model_path = self.config.BEST_MODEL_PATH
+            
+            # 检查模型文件是否存在
+            if not os.path.exists(model_path):
+                self.model_available = False
+                self.status_message = "已切换到CNN模型（仅检测人脸）"
+                self.status_time = time.time()
+                print(f"警告: CNN模型文件不存在: {model_path}")
+                print("将只进行人脸检测，不进行表情识别")
+                return
+            
+            try:
+                self.model = FaceCNN(
+                    input_size=self.config.IMAGE_SIZE,
+                    use_batchnorm=self.config.USE_BATCHNORM,
+                    activation=self.config.ACTIVATION,
+                    keep_prob=1.0
+                )
+                state_dict = torch.load(model_path, map_location=self.device)
+                self.model.load_state_dict(state_dict, strict=False)
+                self.model.to(self.device)
+                self.model.eval()
+                self.model_available = True
+                self.status_message = "已切换到CNN模型"
+            except Exception as e:
+                self.model_available = False
+                self.status_message = f"CNN模型加载失败（仅检测人脸）: {str(e)}"
+                
+        self.status_time = time.time()
+        print(self.status_message)
     
     def start_camera(self):
         """启动摄像头并开始实时检测"""
@@ -335,6 +433,7 @@ class RealtimeEmotionDetector:
         print("按 's' 键切换简单/详细模式")
         print("按 'r' 键开始/停止录制")
         print("按 'c' 键截图")
+        print("按 'm' 键切换模型类型（CNN/VGG）")
         
         while True:
             # 读取一帧
@@ -368,6 +467,8 @@ class RealtimeEmotionDetector:
                 self.toggle_recording(result_frame)
             elif key == ord('c'):
                 self.take_screenshot(result_frame)
+            elif key == ord('m'):
+                self.switch_model()
                 
         # 如果正在录制，停止录制
         if self.is_recording and self.video_writer is not None:
@@ -377,10 +478,25 @@ class RealtimeEmotionDetector:
         cap.release()
         cv2.destroyAllWindows()
 
+def parse_args():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description='实时人脸表情识别')
+    parser.add_argument('--model', type=str, default='cnn', choices=['cnn', 'vgg'], 
+                        help='使用的模型类型: cnn 或 vgg (默认: cnn)')
+    parser.add_argument('--simple', action='store_true', 
+                        help='使用简单显示模式')
+    return parser.parse_args()
+
 if __name__ == "__main__":
     try:
+        # 解析命令行参数
+        args = parse_args()
+        
         # 创建检测器实例
-        detector = RealtimeEmotionDetector(simple_mode=False)
+        detector = RealtimeEmotionDetector(
+            model_type=args.model,
+            simple_mode=args.simple
+        )
         # 启动摄像头检测
         detector.start_camera()
     except Exception as e:
