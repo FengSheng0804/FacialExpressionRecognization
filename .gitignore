@@ -1,7 +1,10 @@
 # 忽略数据集图像文件
 dataset/face_images/
+dataset/face_images_augmented/
 dataset/train_set/*.jpg
 dataset/verify_set/*.jpg
+dataset/fer2013/emotion.csv
+dataset/fer2013/pixels.csv
 # 模型权重文件
 models/FaceCNN/model_weight/*.pth
 models/FaceVGG/model_weight/*.pth
