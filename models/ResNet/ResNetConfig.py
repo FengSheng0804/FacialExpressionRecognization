@@ -37,7 +37,6 @@ class ResNetConfig:
         # 数据路径
         self.TRAIN_DATA_PATH = "dataset/train_set"
         self.VALID_DATA_PATH = "dataset/verify_set"
-        self.TEST_DATA_PATH = "dataset/test_set"
         
         # 模型保存路径
         self.MODEL_SAVE_PATH = "./models/ResNet/model_weight/facial_expression_model_ResNet.pth"

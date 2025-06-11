@@ -10,9 +10,12 @@ from models.FaceVGG.FaceVGG import FaceVGG, create_vgg_model
 from models.FaceVGG.FaceVGGConfig import FaceVGGConfig
 from models.ResNet.ResNet import ResNet50, ResNet101, ResNet152
 from models.ResNet.ResNetConfig import ResNetConfig
+from models.DenseNet.DenseNet import densenet121, densenet169, densenet201, densenet161
+from models.DenseNet.DenseNetConfig import DenseNetConfig
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import argparse
+import torch.nn as nn
 
 # 表情标签映射
 EMOTIONS = {
@@ -64,6 +67,9 @@ class RealtimeEmotionDetector:
         elif self.model_type == 'resnet':
             self.config = ResNetConfig()
             print("使用ResNet模型进行表情识别")
+        elif self.model_type == 'densenet':
+            self.config = DenseNetConfig()
+            print("使用DenseNet模型进行表情识别")
         else:
             self.config = FaceCNNConfig()
             print("使用CNN模型进行表情识别")
@@ -118,6 +124,35 @@ class RealtimeEmotionDetector:
                     self.model.eval()
                 except Exception as e:
                     print(f"警告: ResNet模型加载出现问题: {str(e)}")
+                    print("将只进行人脸检测，不进行表情识别")
+                    self.model_available = False
+            elif self.model_type == 'densenet':
+                try:
+                    # 根据配置选择DenseNet类型
+                    if self.config.DENSENET_TYPE == 'densenet121':
+                        self.model = densenet121()
+                    elif self.config.DENSENET_TYPE == 'densenet169':
+                        self.model = densenet169()
+                    elif self.config.DENSENET_TYPE == 'densenet201':
+                        self.model = densenet201()
+                    elif self.config.DENSENET_TYPE == 'densenet161':
+                        self.model = densenet161()
+                    else:
+                        raise ValueError(f"不支持的DenseNet类型: {self.config.DENSENET_TYPE}")
+                    
+                    # 修改第一层卷积以适应灰度图像
+                    self.model.conv1 = nn.Conv2d(self.config.INPUT_CHANNELS, 2 * self.config.GROWTH_RATE, 
+                                               kernel_size=3, padding=1, bias=False)
+                    
+                    # 修改最后的全连接层以适应表情分类
+                    self.model.linear = nn.Linear(self.model.linear.in_features, self.config.OUTPUT_SIZE)
+                    
+                    state_dict = torch.load(model_path, map_location=self.device)
+                    self.model.load_state_dict(state_dict, strict=False)
+                    self.model.to(self.device)
+                    self.model.eval()
+                except Exception as e:
+                    print(f"警告: DenseNet模型加载出现问题: {str(e)}")
                     print("将只进行人脸检测，不进行表情识别")
                     self.model_available = False
             else:
@@ -471,6 +506,50 @@ class RealtimeEmotionDetector:
             except Exception as e:
                 self.model_available = False
                 self.status_message = f"ResNet模型加载失败（仅检测人脸）: {str(e)}"
+        elif self.model_type == 'resnet':
+            # 切换到DenseNet模型
+            self.model_type = 'densenet'
+            self.config = DenseNetConfig()
+            model_path = self.config.BEST_MODEL_PATH
+            
+            # 检查模型文件是否存在
+            if not os.path.exists(model_path):
+                self.model_available = False
+                self.status_message = "已切换到DenseNet模型（仅检测人脸）"
+                self.status_time = time.time()
+                print(f"警告: DenseNet模型文件不存在: {model_path}")
+                print("将只进行人脸检测，不进行表情识别")
+                return
+                
+            try:
+                # 根据配置选择DenseNet类型
+                if self.config.DENSENET_TYPE == 'densenet121':
+                    self.model = densenet121()
+                elif self.config.DENSENET_TYPE == 'densenet169':
+                    self.model = densenet169()
+                elif self.config.DENSENET_TYPE == 'densenet201':
+                    self.model = densenet201()
+                elif self.config.DENSENET_TYPE == 'densenet161':
+                    self.model = densenet161()
+                else:
+                    raise ValueError(f"不支持的DenseNet类型: {self.config.DENSENET_TYPE}")
+                
+                # 修改第一层卷积以适应灰度图像
+                self.model.conv1 = nn.Conv2d(self.config.INPUT_CHANNELS, 2 * self.config.GROWTH_RATE, 
+                                           kernel_size=3, padding=1, bias=False)
+                
+                # 修改最后的全连接层以适应表情分类
+                self.model.linear = nn.Linear(self.model.linear.in_features, self.config.OUTPUT_SIZE)
+                
+                state_dict = torch.load(model_path, map_location=self.device)
+                self.model.load_state_dict(state_dict, strict=False)
+                self.model.to(self.device)
+                self.model.eval()
+                self.model_available = True
+                self.status_message = f"已切换到{self.config.DENSENET_TYPE.upper()}模型"
+            except Exception as e:
+                self.model_available = False
+                self.status_message = f"DenseNet模型加载失败（仅检测人脸）: {str(e)}"
         else:
             # 切换到CNN模型
             self.model_type = 'cnn'
@@ -566,8 +645,9 @@ class RealtimeEmotionDetector:
 def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description='实时人脸表情识别')
-    parser.add_argument('--model', type=str, default='cnn', choices=['cnn', 'vgg', 'resnet'], 
-                        help='使用的模型类型: cnn 或 vgg 或 resnet (默认: cnn)')
+    parser.add_argument('--model', type=str, default='cnn', 
+                        choices=['cnn', 'vgg', 'resnet', 'densenet'], 
+                        help='使用的模型类型: cnn, vgg, resnet 或 densenet (默认: cnn)')
     parser.add_argument('--simple', action='store_true', 
                         help='使用简单显示模式')
     return parser.parse_args()
