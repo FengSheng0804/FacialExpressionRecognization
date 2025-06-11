@@ -8,6 +8,8 @@ from models.FaceCNN.FaceCNN import FaceCNN
 from models.FaceCNN.FaceCNNConfig import FaceCNNConfig
 from models.FaceVGG.FaceVGG import FaceVGG, create_vgg_model
 from models.FaceVGG.FaceVGGConfig import FaceVGGConfig
+from models.ResNet.ResNet import ResNet50, ResNet101, ResNet152
+from models.ResNet.ResNetConfig import ResNetConfig
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import argparse
@@ -59,6 +61,9 @@ class RealtimeEmotionDetector:
                 'activation': self.config.ACTIVATION,
                 'keep_prob': self.config.KEEP_PROB
             }
+        elif self.model_type == 'resnet':
+            self.config = ResNetConfig()
+            print("使用ResNet模型进行表情识别")
         else:
             self.config = FaceCNNConfig()
             print("使用CNN模型进行表情识别")
@@ -91,6 +96,28 @@ class RealtimeEmotionDetector:
                     self.model.eval()  # 设置为评估模式
                 except Exception as e:
                     print(f"警告: VGG模型加载出现问题: {str(e)}")
+                    print("将只进行人脸检测，不进行表情识别")
+                    self.model_available = False
+            elif self.model_type == 'resnet':
+                try:
+                    # 根据配置选择ResNet类型
+                    if self.config.RESNET_TYPE == 'resnet50':
+                        self.model = ResNet50(num_classes=self.config.OUTPUT_SIZE)
+                    elif self.config.RESNET_TYPE == 'resnet101':
+                        self.model = ResNet101(num_classes=self.config.OUTPUT_SIZE)
+                    elif self.config.RESNET_TYPE == 'resnet152':
+                        self.model = ResNet152(num_classes=self.config.OUTPUT_SIZE)
+                    else:
+                        raise ValueError(f"不支持的ResNet类型: {self.config.RESNET_TYPE}")
+                    
+                    # 加载模型权重
+                    state_dict = torch.load(model_path, map_location=self.device)
+                    self.model.load_state_dict(state_dict, strict=False)
+                    print(f"{self.config.RESNET_TYPE.upper()}模型加载成功（使用非严格模式strict=False）")
+                    self.model.to(self.device)
+                    self.model.eval()
+                except Exception as e:
+                    print(f"警告: ResNet模型加载出现问题: {str(e)}")
                     print("将只进行人脸检测，不进行表情识别")
                     self.model_available = False
             else:
@@ -409,6 +436,41 @@ class RealtimeEmotionDetector:
             except Exception as e:
                 self.model_available = False
                 self.status_message = f"VGG模型加载失败（仅检测人脸）: {str(e)}"
+        elif self.model_type == 'vgg':
+            # 切换到ResNet模型
+            self.model_type = 'resnet'
+            self.config = ResNetConfig()
+            model_path = self.config.BEST_MODEL_PATH
+            
+            # 检查模型文件是否存在
+            if not os.path.exists(model_path):
+                self.model_available = False
+                self.status_message = "已切换到ResNet模型（仅检测人脸）"
+                self.status_time = time.time()
+                print(f"警告: ResNet模型文件不存在: {model_path}")
+                print("将只进行人脸检测，不进行表情识别")
+                return
+                
+            try:
+                # 根据配置选择ResNet类型
+                if self.config.RESNET_TYPE == 'resnet50':
+                    self.model = ResNet50(num_classes=self.config.OUTPUT_SIZE)
+                elif self.config.RESNET_TYPE == 'resnet101':
+                    self.model = ResNet101(num_classes=self.config.OUTPUT_SIZE)
+                elif self.config.RESNET_TYPE == 'resnet152':
+                    self.model = ResNet152(num_classes=self.config.OUTPUT_SIZE)
+                else:
+                    raise ValueError(f"不支持的ResNet类型: {self.config.RESNET_TYPE}")
+                
+                state_dict = torch.load(model_path, map_location=self.device)
+                self.model.load_state_dict(state_dict, strict=False)
+                self.model.to(self.device)
+                self.model.eval()
+                self.model_available = True
+                self.status_message = f"已切换到{self.config.RESNET_TYPE.upper()}模型"
+            except Exception as e:
+                self.model_available = False
+                self.status_message = f"ResNet模型加载失败（仅检测人脸）: {str(e)}"
         else:
             # 切换到CNN模型
             self.model_type = 'cnn'
@@ -504,8 +566,8 @@ class RealtimeEmotionDetector:
 def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description='实时人脸表情识别')
-    parser.add_argument('--model', type=str, default='cnn', choices=['cnn', 'vgg'], 
-                        help='使用的模型类型: cnn 或 vgg (默认: cnn)')
+    parser.add_argument('--model', type=str, default='cnn', choices=['cnn', 'vgg', 'resnet'], 
+                        help='使用的模型类型: cnn 或 vgg 或 resnet (默认: cnn)')
     parser.add_argument('--simple', action='store_true', 
                         help='使用简单显示模式')
     return parser.parse_args()
