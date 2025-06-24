@@ -24,12 +24,17 @@ class DenseNetConfig:
         self.INPUT_CHANNELS = 1  # 灰度图像
         self.IMAGE_SIZE = 48
         self.OUTPUT_SIZE = 7  # 7种表情
-          # DenseNet特定参数
+        
+        # DenseNet特定参数
         self.DENSENET_TYPE = 'densenet121'  # 'densenet121', 'densenet169', 'densenet201', 'densenet161'
         self.GROWTH_RATE = 32
         self.REDUCTION = 0.5
         self.PRETRAINED = False
         self.FEATURE_EXTRACT = False
+        
+        # 自适应增长率参数
+        self.USE_ADAPTIVE_GROWTH = True  # 是否启用自适应增长率
+        self.ADAPTIVE_GROWTH_LIST = [16, 24, 32, 48]  # 可自定义每个dense block的增长率
         
         # CBAM注意力机制参数
         self.USE_CBAM = True  # 是否启用CBAM注意力机制
@@ -39,7 +44,9 @@ class DenseNetConfig:
         # 数据路径
         self.TRAIN_DATA_PATH = "dataset/train_set"
         self.VALID_DATA_PATH = "dataset/verify_set"
-          # 模型保存路径
+        
+        # 模型保存路径
         cbam_suffix = "_cbam" if self.USE_CBAM else "_no_cbam"
-        self.MODEL_SAVE_PATH = f"models/DenseNet/model_weight/facial_expression_model_{self.DENSENET_TYPE}{cbam_suffix}.pth"
-        self.BEST_MODEL_PATH = f"models/DenseNet/model_weight/best_facial_expression_model_{self.DENSENET_TYPE}{cbam_suffix}.pth"
+        adaptive_suffix = "_adaptive_growth" if self.USE_ADAPTIVE_GROWTH else ""
+        self.MODEL_SAVE_PATH = f"models/DenseNet/model_weight/facial_expression_model_{self.DENSENET_TYPE}{cbam_suffix}{adaptive_suffix}.pth"
+        self.BEST_MODEL_PATH = f"models/DenseNet/model_weight/best_facial_expression_model_{self.DENSENET_TYPE}{cbam_suffix}{adaptive_suffix}.pth"

@@ -87,35 +87,37 @@ class Transition(nn.Module):
         return self.down_sample(x)
 
 class DenseNet(nn.Module):
-    def __init__(self, block, nblocks, growth_rate=12, reduction=0.5, num_class=100, use_cbam=True):
+    def __init__(self, block, nblocks, growth_rate=12, reduction=0.5, num_class=100, use_cbam=True, use_adaptive_growth=False, adaptive_growth_list=None):
         super().__init__()
-        self.growth_rate = growth_rate
         self.use_cbam = use_cbam
+        self.use_adaptive_growth = use_adaptive_growth
+        self.adaptive_growth_list = adaptive_growth_list
 
-        inner_channels = 2 * growth_rate
+        # 支持自适应增长率
+        if use_adaptive_growth and adaptive_growth_list is not None:
+            growth_rates = adaptive_growth_list
+        else:
+            growth_rates = [growth_rate] * len(nblocks)
 
+        inner_channels = 2 * growth_rates[0]
         self.conv1 = nn.Conv2d(3, inner_channels, kernel_size=3, padding=1, bias=False)
-
         self.features = nn.Sequential()
 
         for index in range(len(nblocks) - 1):
-            self.features.add_module("dense_block_layer_{}".format(index), 
-                                   self._make_dense_layers(block, inner_channels, nblocks[index]))
-            inner_channels += growth_rate * nblocks[index]
-
+            self.features.add_module("dense_block_layer_{}".format(index),
+                                   self._make_dense_layers(block, inner_channels, nblocks[index], growth_rates[index]))
+            inner_channels += growth_rates[index] * nblocks[index]
             out_channels = int(reduction * inner_channels)
-            self.features.add_module("transition_layer_{}".format(index), 
+            self.features.add_module("transition_layer_{}".format(index),
                                    Transition(inner_channels, out_channels))
             inner_channels = out_channels
 
-        self.features.add_module("dense_block{}".format(len(nblocks) - 1), 
-                               self._make_dense_layers(block, inner_channels, nblocks[len(nblocks)-1]))
-        inner_channels += growth_rate * nblocks[len(nblocks) - 1]
+        self.features.add_module("dense_block{}".format(len(nblocks) - 1),
+                               self._make_dense_layers(block, inner_channels, nblocks[len(nblocks)-1], growth_rates[-1]))
+        inner_channels += growth_rates[-1] * nblocks[len(nblocks) - 1]
         self.features.add_module('bn', nn.BatchNorm2d(inner_channels))
         self.features.add_module('relu', nn.ReLU(inplace=True))
-
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-
         self.linear = nn.Linear(inner_channels, num_class)
 
     def forward(self, x):
@@ -126,26 +128,34 @@ class DenseNet(nn.Module):
         output = self.linear(output)
         return output
 
-    def _make_dense_layers(self, block, in_channels, nblocks):
+    def _make_dense_layers(self, block, in_channels, nblocks, growth_rate):
         dense_block = nn.Sequential()
         for index in range(nblocks):
-            dense_block.add_module('bottle_neck_layer_{}'.format(index), 
-                                 block(in_channels, self.growth_rate, self.use_cbam))
-            in_channels += self.growth_rate
+            dense_block.add_module('bottle_neck_layer_{}'.format(index),
+                                 block(in_channels, growth_rate, self.use_cbam))
+            in_channels += growth_rate
         return dense_block
 
-def densenet121(num_class=7, use_cbam=True):
-    """DenseNet-121 with optional CBAM attention for facial expression recognition"""
-    return DenseNet(Bottleneck, [6,12,24,16], growth_rate=32, num_class=num_class, use_cbam=use_cbam)
+def densenet121(num_class=7, use_cbam=True, use_adaptive_growth=False, adaptive_growth_list=None):
+    nblocks = [6,12,24,16]
+    if use_adaptive_growth and adaptive_growth_list is not None:
+        return DenseNet(Bottleneck, nblocks, growth_rate=adaptive_growth_list[0], num_class=num_class, use_cbam=use_cbam, use_adaptive_growth=True, adaptive_growth_list=adaptive_growth_list)
+    return DenseNet(Bottleneck, nblocks, growth_rate=32, num_class=num_class, use_cbam=use_cbam)
 
-def densenet169(num_class=7, use_cbam=True):
-    """DenseNet-169 with optional CBAM attention for facial expression recognition"""
-    return DenseNet(Bottleneck, [6,12,32,32], growth_rate=32, num_class=num_class, use_cbam=use_cbam)
+def densenet169(num_class=7, use_cbam=True, use_adaptive_growth=False, adaptive_growth_list=None):
+    nblocks = [6,12,32,32]
+    if use_adaptive_growth and adaptive_growth_list is not None:
+        return DenseNet(Bottleneck, nblocks, growth_rate=adaptive_growth_list[0], num_class=num_class, use_cbam=use_cbam, use_adaptive_growth=True, adaptive_growth_list=adaptive_growth_list)
+    return DenseNet(Bottleneck, nblocks, growth_rate=32, num_class=num_class, use_cbam=use_cbam)
 
-def densenet201(num_class=7, use_cbam=True):
-    """DenseNet-201 with optional CBAM attention for facial expression recognition"""
-    return DenseNet(Bottleneck, [6,12,48,32], growth_rate=32, num_class=num_class, use_cbam=use_cbam)
+def densenet201(num_class=7, use_cbam=True, use_adaptive_growth=False, adaptive_growth_list=None):
+    nblocks = [6,12,48,32]
+    if use_adaptive_growth and adaptive_growth_list is not None:
+        return DenseNet(Bottleneck, nblocks, growth_rate=adaptive_growth_list[0], num_class=num_class, use_cbam=use_cbam, use_adaptive_growth=True, adaptive_growth_list=adaptive_growth_list)
+    return DenseNet(Bottleneck, nblocks, growth_rate=32, num_class=num_class, use_cbam=use_cbam)
 
-def densenet161(num_class=7, use_cbam=True):
-    """DenseNet-161 with optional CBAM attention for facial expression recognition"""
-    return DenseNet(Bottleneck, [6,12,36,24], growth_rate=48, num_class=num_class, use_cbam=use_cbam)
+def densenet161(num_class=7, use_cbam=True, use_adaptive_growth=False, adaptive_growth_list=None):
+    nblocks = [6,12,36,24]
+    if use_adaptive_growth and adaptive_growth_list is not None:
+        return DenseNet(Bottleneck, nblocks, growth_rate=adaptive_growth_list[0], num_class=num_class, use_cbam=use_cbam, use_adaptive_growth=True, adaptive_growth_list=adaptive_growth_list)
+    return DenseNet(Bottleneck, nblocks, growth_rate=48, num_class=num_class, use_cbam=use_cbam)

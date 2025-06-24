@@ -175,6 +175,9 @@ def print_model_info(model, config):
     if config.USE_CBAM:
         print(f"  CBAM通道缩放比例: {config.CBAM_RATIO}")
         print(f"  CBAM空间卷积核大小: {config.CBAM_KERNEL_SIZE}")
+    print(f"  自适应增长率: {'启用' if config.USE_ADAPTIVE_GROWTH else '禁用'}")
+    if config.USE_ADAPTIVE_GROWTH and config.ADAPTIVE_GROWTH_LIST:
+        print(f"  自适应增长率: {config.ADAPTIVE_GROWTH_LIST}")
     print(f"  总参数量: {total_params:,}")
     print(f"  可训练参数量: {trainable_params:,}")
     print(f"  设备: {config.DEVICE}")
@@ -190,23 +193,21 @@ def train(config):
     print(f"创建 {config.DENSENET_TYPE} 模型，CBAM: {'启用' if config.USE_CBAM else '禁用'}")
     
     if config.DENSENET_TYPE == 'densenet121':
-        model = densenet121(num_class=config.OUTPUT_SIZE, use_cbam=config.USE_CBAM)
+        model = densenet121(num_class=config.OUTPUT_SIZE, use_cbam=config.USE_CBAM, use_adaptive_growth=config.USE_ADAPTIVE_GROWTH, adaptive_growth_list=config.ADAPTIVE_GROWTH_LIST)
     elif config.DENSENET_TYPE == 'densenet169':
-        model = densenet169(num_class=config.OUTPUT_SIZE, use_cbam=config.USE_CBAM)
+        model = densenet169(num_class=config.OUTPUT_SIZE, use_cbam=config.USE_CBAM, use_adaptive_growth=config.USE_ADAPTIVE_GROWTH, adaptive_growth_list=config.ADAPTIVE_GROWTH_LIST)
     elif config.DENSENET_TYPE == 'densenet201':
-        model = densenet201(num_class=config.OUTPUT_SIZE, use_cbam=config.USE_CBAM)
+        model = densenet201(num_class=config.OUTPUT_SIZE, use_cbam=config.USE_CBAM, use_adaptive_growth=config.USE_ADAPTIVE_GROWTH, adaptive_growth_list=config.ADAPTIVE_GROWTH_LIST)
     elif config.DENSENET_TYPE == 'densenet161':
-        model = densenet161(num_class=config.OUTPUT_SIZE, use_cbam=config.USE_CBAM)
+        model = densenet161(num_class=config.OUTPUT_SIZE, use_cbam=config.USE_CBAM, use_adaptive_growth=config.USE_ADAPTIVE_GROWTH, adaptive_growth_list=config.ADAPTIVE_GROWTH_LIST)
     else:
-        raise ValueError(f"不支持的DenseNet类型: {config.DENSENET_TYPE}")    # 修改第一层卷积以适应灰度图像
-    if config.DENSENET_TYPE == 'densenet161':
-        # DenseNet161 使用 growth_rate=48，所以初始通道数是 2*48=96
-        model.conv1 = nn.Conv2d(config.INPUT_CHANNELS, 2 * 48, 
-                               kernel_size=3, padding=1, bias=False)
+        raise ValueError(f"不支持的DenseNet类型: {config.DENSENET_TYPE}")
+    # 修改第一层卷积以适应灰度图像
+    if config.USE_ADAPTIVE_GROWTH and config.ADAPTIVE_GROWTH_LIST:
+        first_growth = config.ADAPTIVE_GROWTH_LIST[0]
     else:
-        # 其他DenseNet使用 growth_rate=32，所以初始通道数是 2*32=64
-        model.conv1 = nn.Conv2d(config.INPUT_CHANNELS, 2 * config.GROWTH_RATE, 
-                               kernel_size=3, padding=1, bias=False)
+        first_growth = 48 if config.DENSENET_TYPE == 'densenet161' else config.GROWTH_RATE
+    model.conv1 = nn.Conv2d(config.INPUT_CHANNELS, 2 * first_growth, kernel_size=3, padding=1, bias=False)
     
     model = model.to(config.DEVICE)
     
@@ -378,6 +379,8 @@ if __name__ == "__main__":
     print(f"开始训练配置:")
     print(f"  模型: {config.DENSENET_TYPE}")
     print(f"  CBAM: {'启用' if config.USE_CBAM else '禁用'}")
+    print(f"  自适应增长率: {'启用' if config.USE_ADAPTIVE_GROWTH else '禁用'}")
+    print(f"  增长率: {config.GROWTH_RATE}")
     print(f"  学习率: {config.LEARNING_RATE}")
     print(f"  训练轮数: {config.EPOCHS}")
     print(f"  批次大小: {config.BATCH_SIZE}")
