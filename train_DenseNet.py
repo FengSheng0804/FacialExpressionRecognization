@@ -35,7 +35,7 @@ def init_wandb(config):
     try:
         wandb.init(
             project="facial-expression-recognition",
-            name=f"densenet_{config.OPTIMIZER}_lr{config.LEARNING_RATE}",
+            name=f"densenet_{config.DENSENET_TYPE}_{'cbam_' if config.USE_CBAM else 'no_cbam_'}{config.OPTIMIZER}_lr{config.LEARNING_RATE}",
             config={
                 "learning_rate": config.LEARNING_RATE,
                 "epochs": config.EPOCHS,
@@ -46,6 +46,9 @@ def init_wandb(config):
                 "densenet_type": config.DENSENET_TYPE,
                 "growth_rate": config.GROWTH_RATE,
                 "reduction": config.REDUCTION,
+                "use_cbam": config.USE_CBAM,
+                "cbam_ratio": config.CBAM_RATIO if config.USE_CBAM else None,
+                "cbam_kernel_size": config.CBAM_KERNEL_SIZE if config.USE_CBAM else None,
                 "device": str(config.DEVICE)
             },
             settings=wandb.Settings(init_timeout=180)  # 增加超时时间到180秒
@@ -161,34 +164,54 @@ def test_model(model, val_loader, criterion, device):
         print(f"  召回率: {recall:.4f}")
         print(f"  F1分数: {f1:.4f}")
 
+def print_model_info(model, config):
+    """打印模型信息"""
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    
+    print(f"\n模型信息:")
+    print(f"  架构: {config.DENSENET_TYPE}")
+    print(f"  CBAM注意力机制: {'启用' if config.USE_CBAM else '禁用'}")
+    if config.USE_CBAM:
+        print(f"  CBAM通道缩放比例: {config.CBAM_RATIO}")
+        print(f"  CBAM空间卷积核大小: {config.CBAM_KERNEL_SIZE}")
+    print(f"  总参数量: {total_params:,}")
+    print(f"  可训练参数量: {trainable_params:,}")
+    print(f"  设备: {config.DEVICE}")
+
 def train(config):
     """训练模型"""
     # 初始化wandb
     use_wandb = init_wandb(config)
-    
-    # 加载数据
+      # 加载数据
     train_loader, val_loader = load_data(config)
     
     # 创建模型
+    print(f"创建 {config.DENSENET_TYPE} 模型，CBAM: {'启用' if config.USE_CBAM else '禁用'}")
+    
     if config.DENSENET_TYPE == 'densenet121':
-        model = densenet121()
+        model = densenet121(num_class=config.OUTPUT_SIZE, use_cbam=config.USE_CBAM)
     elif config.DENSENET_TYPE == 'densenet169':
-        model = densenet169()
+        model = densenet169(num_class=config.OUTPUT_SIZE, use_cbam=config.USE_CBAM)
     elif config.DENSENET_TYPE == 'densenet201':
-        model = densenet201()
+        model = densenet201(num_class=config.OUTPUT_SIZE, use_cbam=config.USE_CBAM)
     elif config.DENSENET_TYPE == 'densenet161':
-        model = densenet161()
+        model = densenet161(num_class=config.OUTPUT_SIZE, use_cbam=config.USE_CBAM)
     else:
-        raise ValueError(f"不支持的DenseNet类型: {config.DENSENET_TYPE}")
-    
-    # 修改第一层卷积以适应灰度图像
-    model.conv1 = nn.Conv2d(config.INPUT_CHANNELS, 2 * config.GROWTH_RATE, 
-                           kernel_size=3, padding=1, bias=False)
-    
-    # 修改最后的全连接层以适应表情分类
-    model.linear = nn.Linear(model.linear.in_features, config.OUTPUT_SIZE)
+        raise ValueError(f"不支持的DenseNet类型: {config.DENSENET_TYPE}")    # 修改第一层卷积以适应灰度图像
+    if config.DENSENET_TYPE == 'densenet161':
+        # DenseNet161 使用 growth_rate=48，所以初始通道数是 2*48=96
+        model.conv1 = nn.Conv2d(config.INPUT_CHANNELS, 2 * 48, 
+                               kernel_size=3, padding=1, bias=False)
+    else:
+        # 其他DenseNet使用 growth_rate=32，所以初始通道数是 2*32=64
+        model.conv1 = nn.Conv2d(config.INPUT_CHANNELS, 2 * config.GROWTH_RATE, 
+                               kernel_size=3, padding=1, bias=False)
     
     model = model.to(config.DEVICE)
+    
+    # 打印模型信息
+    print_model_info(model, config)
     
     # 定义损失函数和优化器
     criterion = nn.CrossEntropyLoss()
@@ -218,13 +241,16 @@ def train(config):
     
     # 创建保存目录
     os.makedirs(os.path.dirname(config.MODEL_SAVE_PATH), exist_ok=True)
-    
-    # 训练循环
+      # 训练循环
     best_acc = 0
     train_losses = []
     val_losses = []
     train_accs = []
     val_accs = []
+    
+    # 早停机制参数
+    patience = 20  # 容忍多少个epoch没有改善
+    patience_counter = 0
     
     # 记录模型架构到wandb
     if use_wandb:
@@ -302,11 +328,11 @@ def train(config):
         
         # 打印epoch结果
         print(f'Epoch [{epoch+1}/{config.EPOCHS}], Loss: {train_loss:.4f}, Train Accuracy: {train_acc:.4f}, Validation Accuracy: {valid_acc:.4f}')
-        
-        # 保存最佳模型
+          # 保存最佳模型
         if valid_acc > best_acc:
             print(f"发现更好的模型，已保存到 '{config.BEST_MODEL_PATH}'")
             best_acc = valid_acc
+            patience_counter = 0  # 重置早停计数器
             torch.save(model.state_dict(), config.BEST_MODEL_PATH)
             
             # 记录最佳模型到wandb
@@ -316,6 +342,13 @@ def train(config):
                     wandb.run.summary["best_epoch"] = epoch
                 except Exception as e:
                     print(f"警告: wandb记录最佳模型失败: {str(e)}")
+        else:
+            patience_counter += 1
+        
+        # 早停机制检查
+        if patience_counter >= patience:
+            print(f"连续{patience}个epoch没有改善，提前停止训练")
+            break
         
         # 保存最新模型
         torch.save(model.state_dict(), config.MODEL_SAVE_PATH)
@@ -339,8 +372,20 @@ def train(config):
         wandb.finish()
 
 if __name__ == "__main__":
+    # 直接使用DenseNetConfig中的配置参数
+    config = DenseNetConfig()
+    
+    print(f"开始训练配置:")
+    print(f"  模型: {config.DENSENET_TYPE}")
+    print(f"  CBAM: {'启用' if config.USE_CBAM else '禁用'}")
+    print(f"  学习率: {config.LEARNING_RATE}")
+    print(f"  训练轮数: {config.EPOCHS}")
+    print(f"  批次大小: {config.BATCH_SIZE}")
+    print(f"  优化器: {config.OPTIMIZER}")
+    print(f"  设备: {config.DEVICE}")
+    print("-" * 50)
+    
     try:
-        config = DenseNetConfig()
         train(config)
     except Exception as e:
         print(f"训练过程中发生错误: {str(e)}")
