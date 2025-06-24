@@ -46,7 +46,24 @@ class DenseNetConfig:
         self.VALID_DATA_PATH = "dataset/verify_set"
         
         # 模型保存路径
-        cbam_suffix = "_cbam" if self.USE_CBAM else "_no_cbam"
+        cbam_suffix = "_cbam" if self.USE_CBAM else ""
         adaptive_suffix = "_adaptive_growth" if self.USE_ADAPTIVE_GROWTH else ""
         self.MODEL_SAVE_PATH = f"models/DenseNet/model_weight/facial_expression_model_{self.DENSENET_TYPE}{cbam_suffix}{adaptive_suffix}.pth"
         self.BEST_MODEL_PATH = f"models/DenseNet/model_weight/best_facial_expression_model_{self.DENSENET_TYPE}{cbam_suffix}{adaptive_suffix}.pth"
+        
+        # 多GPU训练配置
+        self.USE_MULTI_GPU = True  # 是否自动启用多GPU训练（如果有多个GPU）
+        self.USE_DISTRIBUTED = False  # 是否使用分布式训练（推荐用于多机多卡）
+        self.SYNC_BATCH_NORM = True  # 是否在多GPU训练时同步批归一化
+        self.GPU_IDS = None  # 指定使用的GPU ID列表，None表示使用所有可用GPU
+        
+        # 分布式训练配置
+        self.MASTER_ADDR = 'localhost'
+        self.MASTER_PORT = '12355'
+        self.BACKEND = 'nccl'  # 分布式后端：nccl（推荐GPU）或gloo（CPU）
+        
+        # 性能优化配置
+        self.PIN_MEMORY = True  # 启用内存固定以加速GPU数据传输
+        self.NON_BLOCKING = True  # 启用非阻塞数据传输
+        self.MIXED_PRECISION = False  # 是否启用混合精度训练（需要Apex或PyTorch 1.6+）
+        self.COMPILE_MODEL = False  # 是否编译模型（PyTorch 2.0+）
