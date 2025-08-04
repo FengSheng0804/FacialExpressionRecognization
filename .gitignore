@@ -1,0 +1,46 @@
+# 忽略数据集图像文件
+dataset/face_images/
+dataset/face_images_augmented/
+dataset/train_set/
+dataset/verify_set/
+dataset/fer2013/
+# 模型权重文件
+models/*/model_weight/*.pth
+# 模型训练日志
+wandb/
+# 保存的截图
+output/
+
+# Python相关
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+test.py
+
+# IDE相关
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db 
