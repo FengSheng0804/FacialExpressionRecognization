@@ -8,6 +8,7 @@ dataset/fer2013/
 models/*/model_weight/*.pth
 # 模型训练日志
 wandb/
+results/
 # 保存的截图
 output/
 
