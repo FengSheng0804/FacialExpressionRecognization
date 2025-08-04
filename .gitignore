@@ -1,10 +1,9 @@
 # 忽略数据集图像文件
 dataset/face_images/
 dataset/face_images_augmented/
-dataset/train_set/*.jpg
-dataset/verify_set/*.jpg
-dataset/fer2013/emotion.csv
-dataset/fer2013/pixels.csv
+dataset/train_set/
+dataset/verify_set/
+dataset/fer2013/
 # 模型权重文件
 models/*/model_weight/*.pth
 # 模型训练日志
@@ -34,6 +33,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+test.py
 
 # IDE相关
 .idea/

@@ -41,7 +41,7 @@ class DistillationConfig:
     def __init__(self):
         # 基本训练参数
         self.BATCH_SIZE = 64  # 较小的批次大小用于蒸馏
-        self.EPOCHS = 30  # 蒸馏轮数较少
+        self.EPOCHS = 60  # 蒸馏轮数较少
         self.LEARNING_RATE = 0.00005  # 更小的学习率，避免震荡
         self.DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
@@ -62,10 +62,6 @@ class DistillationConfig:
         
         # 梯度裁剪（防止梯度爆炸）
         self.GRAD_CLIP = 1.0
-        
-        # 预热策略
-        self.WARMUP_EPOCHS = 2
-        self.WARMUP_LR = 0.00001
         
         # 模型参数
         self.INPUT_CHANNELS = 1
@@ -445,8 +441,8 @@ class KnowledgeDistillationLoss(nn.Module):
     """
     def __init__(self, alpha=0.5, temperature=3.0):
         super(KnowledgeDistillationLoss, self).__init__()
-        self.alpha = alpha  # 蒸馏损失权重
-        self.temperature = temperature  # 温度参数
+        self.alpha = alpha                                  # 蒸馏损失权重
+        self.temperature = temperature                      # 温度参数
         self.ce_loss = nn.CrossEntropyLoss()
         self.kl_loss = nn.KLDivLoss(reduction='batchmean')
     
